@@ -1,0 +1,465 @@
+# ============================================================================
+# BookSwap API — OpenAPI 3.1 specification
+#
+# HOW TO READ THIS FILE (for a beginner):
+#   - "paths"      = the URLs you can call (the resources / nouns)
+#   - the words under a path (get/post/patch) = the HTTP verb (the action)
+#   - "responses"  = the status codes each call can return
+#   - "components" = reusable pieces (schemas, params, headers) shared via $ref
+#                    so we write each shape ONCE and point to it everywhere.
+#   Rule of thumb we follow: URLs are NOUNS, actions are HTTP VERBS.
+#   (e.g. POST /books, NOT POST /createBook)
+# ============================================================================
+
+openapi: 3.1.0
+
+info:
+  title: BookSwap API
+  version: 0.1.0
+  description: |
+    Backend for BookSwap, a per-building book lending marketplace.
+    Serves the need: "let neighbours list, find, borrow and return books,
+    and get a weekly digest of what's new in their building."
+    Every request must carry a valid JWT (issued by Microsoft Entra External ID)
+    in the `Authorization: Bearer ...` header.
+
+servers:
+  - url: https://api.bookswap.local
+
+# Applied to every endpoint below: you must be logged in (send a JWT).
+security:
+  - bearerAuth: []
+
+# ----------------------------------------------------------------------------
+# PATHS — the resources and the actions allowed on them
+# ----------------------------------------------------------------------------
+paths:
+
+  /books:
+    get:
+      summary: List / search books in the building
+      description: Read-heavy catalogue endpoint. Always paginated so it can
+        never return 50,000 rows at once.
+      operationId: listBooks
+      parameters:
+        - $ref: "#/components/parameters/SearchParam"
+        - $ref: "#/components/parameters/ConditionParam"
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+      responses:
+        "200":
+          description: A page of books
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BookPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    post:
+      summary: List a new book I own
+      description: Creates a book. Must succeed even if email is down — we only
+        write to the database here and drop an event on a queue for the digest.
+      operationId: createBook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewBook" }
+      responses:
+        "201":
+          description: Book created
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Book" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /books/{bookId}:
+    parameters:
+      - $ref: "#/components/parameters/BookIdParam"
+    get:
+      summary: Get one book
+      operationId: getBook
+      responses:
+        "200":
+          description: The book
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Book" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Update my book (e.g. mark available/unavailable)
+      description: Only the owner may edit. Others get 403.
+      operationId: updateBook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookUpdate" }
+      responses:
+        "200":
+          description: Updated book
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Book" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /books/{bookId}/borrow-requests:
+    parameters:
+      - $ref: "#/components/parameters/BookIdParam"
+    post:
+      summary: Request to borrow this book
+      description: The owner is notified (via queue) so it can arrive in-app fast.
+        Returns 409 if the book is unavailable or you own it.
+      operationId: createBorrowRequest
+      responses:
+        "201":
+          description: Borrow request created; owner will be notified
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BorrowRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /books/{bookId}/loans:
+    parameters:
+      - $ref: "#/components/parameters/BookIdParam"
+    get:
+      summary: Borrower history for this book (paginated)
+      operationId: listBookLoans
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+      responses:
+        "200":
+          description: A page of loans for this book
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoanPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /borrow-requests/{requestId}:
+    parameters:
+      - $ref: "#/components/parameters/RequestIdParam"
+    patch:
+      summary: Owner accepts or declines a borrow request
+      description: Only the book owner may decide. Accepting an already-decided
+        request returns 409.
+      operationId: decideBorrowRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BorrowDecision" }
+      responses:
+        "200":
+          description: Updated borrow request
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BorrowRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /loans:
+    get:
+      summary: List loans (filter by status)
+      operationId: listLoans
+      parameters:
+        - $ref: "#/components/parameters/LoanStatusParam"
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+      responses:
+        "200":
+          description: A page of loans
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoanPage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /loans/{loanId}:
+    parameters:
+      - $ref: "#/components/parameters/LoanIdParam"
+    patch:
+      summary: Mark a loan returned
+      description: Sets status to "returned". Returning an already-returned loan
+        is a 409.
+      operationId: returnLoan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoanUpdate" }
+      responses:
+        "200":
+          description: Updated loan
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Loan" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+# ----------------------------------------------------------------------------
+# COMPONENTS — reusable pieces. Defined once, referenced with $ref everywhere.
+# ----------------------------------------------------------------------------
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # ---- Reusable response headers -------------------------------------------
+  headers:
+    RequestId:
+      description: Correlation id echoed on every response so logs and clients
+        can be matched up.
+      schema: { type: string, format: uuid }
+
+  # ---- Reusable query/path parameters --------------------------------------
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: 1-based page number.
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSizeParam:
+      name: pageSize
+      in: query
+      description: Items per page (capped at 100).
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    SearchParam:
+      name: search
+      in: query
+      description: Free text matched against title, author or ISBN.
+      schema: { type: string }
+    ConditionParam:
+      name: condition
+      in: query
+      description: Filter by book condition.
+      schema: { $ref: "#/components/schemas/Condition" }
+    LoanStatusParam:
+      name: status
+      in: query
+      description: Filter loans by status.
+      schema: { $ref: "#/components/schemas/LoanStatus" }
+    BookIdParam:
+      name: bookId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RequestIdParam:
+      name: requestId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    LoanIdParam:
+      name: loanId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  # ---- Reusable error responses (each points to the Error schema) ----------
+  responses:
+    BadRequest:
+      description: Malformed request (e.g. bad JSON)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Authenticated, but not allowed (e.g. not the owner)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource does not exist
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: Action clashes with current state (e.g. book unavailable)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unprocessable:
+      description: Well-formed JSON but fails validation (e.g. missing title)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  # ---- Reusable data shapes -------------------------------------------------
+  schemas:
+
+    Condition:
+      type: string
+      enum: [new, good, fair, worn]
+
+    LoanStatus:
+      type: string
+      enum: [out, returned, overdue]
+
+    # Full book as returned by the API. Note: NO owner contact details here,
+    # to satisfy the privacy rule (addresses/phones never returned).
+    Book:
+      type: object
+      required: [id, title, author, condition, available, ownerId, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        author: { type: string }
+        isbn: { type: string, description: "ISBN-13; optional" }
+        condition: { $ref: "#/components/schemas/Condition" }
+        available: { type: boolean }
+        photoUrl:
+          type: string
+          format: uri
+          description: Public/CDN URL of the photo in Blob Storage (not the bytes)
+        ownerId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+
+    # Input for POST /books. Only the fields the client is allowed to set.
+    NewBook:
+      type: object
+      required: [title, author, condition]
+      properties:
+        title: { type: string, minLength: 1 }
+        author: { type: string, minLength: 1 }
+        isbn: { type: string }
+        condition: { $ref: "#/components/schemas/Condition" }
+        photoUrl: { type: string, format: uri }
+
+    # Input for PATCH /books/{id}. All optional — you send only what changes.
+    BookUpdate:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        author: { type: string, minLength: 1 }
+        condition: { $ref: "#/components/schemas/Condition" }
+        available: { type: boolean }
+        photoUrl: { type: string, format: uri }
+
+    BorrowRequest:
+      type: object
+      required: [id, bookId, borrowerId, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        bookId: { type: string, format: uuid }
+        borrowerId: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [pending, accepted, declined]
+        createdAt: { type: string, format: date-time }
+
+    # Input for PATCH /borrow-requests/{id} (owner's decision).
+    BorrowDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [accept, decline]
+
+    Loan:
+      type: object
+      required: [id, bookId, borrowerId, status, borrowedAt, dueAt]
+      properties:
+        id: { type: string, format: uuid }
+        bookId: { type: string, format: uuid }
+        borrowerId: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/LoanStatus" }
+        borrowedAt: { type: string, format: date-time }
+        dueAt:
+          type: string
+          format: date-time
+          description: 30 days after borrowedAt; past this and not returned = overdue
+        returnedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    # Input for PATCH /loans/{id}.
+    LoanUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [returned]
+
+    # Shared pagination metadata. List responses reuse this via allOf so we
+    # never copy-paste page/pageSize/total.
+    PageMeta:
+      type: object
+      required: [page, pageSize, total]
+      properties:
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+
+    BookPage:
+      allOf:
+        - $ref: "#/components/schemas/PageMeta"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Book" }
+
+    LoanPage:
+      allOf:
+        - $ref: "#/components/schemas/PageMeta"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Loan" }
+
+    # One error shape used by every error response. Carries the request id so a
+    # user can quote it to support and we can find the exact log line.
+    Error:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code: { type: string, example: "NOT_FOUND" }
+        message: { type: string, example: "Book not found" }
+        requestId: { type: string, format: uuid }
