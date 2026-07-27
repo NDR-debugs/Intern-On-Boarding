@@ -1,0 +1,90 @@
+<mxfile host="app.diagrams.net" type="device">
+  <diagram name="BookSwap Container Diagram" id="bookswap-c4-l2">
+    <mxGraphModel dx="1100" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="BookSwap — Container Diagram (C4 Level 2)&#10;Solid = synchronous (caller waits)   |   Dashed orange = asynchronous (via queue)" style="text;html=1;align=center;verticalAlign=middle;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="240" y="10" width="620" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Person -->
+        <mxCell id="user" value="&lt;b&gt;Member&lt;/b&gt;&lt;br&gt;[Person]&lt;br&gt;Neighbour listing, finding &amp;amp; borrowing books" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427b;strokeColor=#052c54;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="400" y="80" width="180" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Internal containers (blue) -->
+        <mxCell id="mobile" value="&lt;b&gt;Mobile app&lt;/b&gt;&lt;br&gt;[React Native]&lt;br&gt;Member-facing UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168bd;strokeColor=#0b4884;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="400" y="210" width="180" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="api" value="&lt;b&gt;API service&lt;/b&gt;&lt;br&gt;[Node.js Express, Azure App Service]&lt;br&gt;REST API + background queue consumer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168bd;strokeColor=#0b4884;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="390" y="350" width="200" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- External / managed (grey) -->
+        <mxCell id="identity" value="&lt;b&gt;Identity&lt;/b&gt;&lt;br&gt;[Microsoft Entra External ID]&lt;br&gt;Issues &amp;amp; signs JWTs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8d99ae;strokeColor=#6c7688;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="120" y="210" width="180" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="email" value="&lt;b&gt;Email&lt;/b&gt;&lt;br&gt;[Azure Communication Services]&lt;br&gt;Outbound digest &amp;amp; notices" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8d99ae;strokeColor=#6c7688;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="800" y="500" width="190" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Data + infra containers (teal / orange) -->
+        <mxCell id="sql" value="&lt;b&gt;Database&lt;/b&gt;&lt;br&gt;[Azure SQL]&lt;br&gt;System of record: books, members, loans" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2a9d8f;strokeColor=#1f7a6f;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="80" y="500" width="180" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="redis" value="&lt;b&gt;Cache&lt;/b&gt;&lt;br&gt;[Azure Cache for Redis]&lt;br&gt;Hot reads: book, recent list, searches" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2a9d8f;strokeColor=#1f7a6f;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="300" y="500" width="180" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="blob" value="&lt;b&gt;Object store&lt;/b&gt;&lt;br&gt;[Azure Blob Storage]&lt;br&gt;Book photos (up to 5MB)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#2a9d8f;strokeColor=#1f7a6f;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="520" y="500" width="180" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="bus" value="&lt;b&gt;Queue&lt;/b&gt;&lt;br&gt;[Azure Service Bus]&lt;br&gt;Buffers digest &amp;amp; notification work" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e76f51;strokeColor=#c1121f;fontColor=#ffffff;" vertex="1" parent="1">
+          <mxGeometry x="800" y="350" width="190" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- Synchronous edges (solid) -->
+        <mxCell id="e_user_mobile" value="Uses [HTTPS / app]" style="endArrow=classic;html=1;strokeColor=#333333;fontSize=10;" edge="1" parent="1" source="user" target="mobile">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_mobile_identity" value="Sign in, get JWT [HTTPS] (sync)" style="endArrow=classic;html=1;strokeColor=#333333;fontSize=10;" edge="1" parent="1" source="mobile" target="identity">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_mobile_api" value="REST calls with Bearer JWT [HTTPS] (sync)" style="endArrow=classic;html=1;strokeColor=#333333;fontSize=10;" edge="1" parent="1" source="mobile" target="api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_api_sql" value="Read/write books, loans [SQL/TDS] (sync)" style="endArrow=classic;html=1;strokeColor=#333333;fontSize=10;" edge="1" parent="1" source="api" target="sql">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_api_redis" value="Cache-aside lookups [TCP] (sync)" style="endArrow=classic;html=1;strokeColor=#333333;fontSize=10;" edge="1" parent="1" source="api" target="redis">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_api_blob" value="Store &amp;amp; serve photos [HTTPS] (sync)" style="endArrow=classic;html=1;strokeColor=#333333;fontSize=10;" edge="1" parent="1" source="api" target="blob">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Asynchronous edges (dashed orange) -->
+        <mxCell id="e_api_bus" value="Publish 'book added', 'borrow requested' [AMQP] (async)" style="endArrow=classic;html=1;dashed=1;strokeColor=#e76f51;fontColor=#c1121f;fontSize=10;" edge="1" parent="1" source="api" target="bus">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_bus_api" value="Deliver to background consumer [AMQP] (async)" style="endArrow=classic;html=1;dashed=1;strokeColor=#e76f51;fontColor=#c1121f;fontSize=10;exitX=0.25;exitY=1;entryX=0.9;entryY=0;" edge="1" parent="1" source="bus" target="api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_api_email" value="Send digest &amp;amp; notification email [HTTPS] (async work)" style="endArrow=classic;html=1;dashed=1;strokeColor=#e76f51;fontColor=#c1121f;fontSize=10;" edge="1" parent="1" source="api" target="email">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_email_user" value="Weekly digest [email] (async)" style="endArrow=classic;html=1;dashed=1;strokeColor=#e76f51;fontColor=#c1121f;fontSize=10;" edge="1" parent="1" source="email" target="user">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="legend" value="Legend&#10;Blue = app we build   Teal = data/cache   Orange = queue   Grey = managed/external&#10;Solid arrow = synchronous (caller waits)   Dashed orange = asynchronous (queue)" style="text;html=1;align=left;verticalAlign=top;fontSize=10;strokeColor=#999999;dashed=1;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="80" y="640" width="620" height="70" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
