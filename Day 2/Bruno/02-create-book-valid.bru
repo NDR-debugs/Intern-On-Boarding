@@ -1,0 +1,27 @@
+meta {
+  name: 02 Create book - valid (expect 201)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/books
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: faketoken
+}
+
+body:json {
+  {
+    "title": "Dune",
+    "author": "Frank Herbert",
+    "condition": "good"
+  }
+}
+
+assert {
+  res.status: eq 201
+}

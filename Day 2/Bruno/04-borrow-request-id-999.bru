@@ -1,0 +1,19 @@
+meta {
+  name: 04 Borrow request id=999 (deliverable expects 201; mock returns 422 - FINDING)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/books/999/borrow-requests
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: faketoken
+}
+
+assert {
+  res.status: eq 422
+}

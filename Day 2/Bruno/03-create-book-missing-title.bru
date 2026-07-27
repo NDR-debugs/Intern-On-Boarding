@@ -1,0 +1,26 @@
+meta {
+  name: 03 Create book - missing title (expect 400 or 422)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/books
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: faketoken
+}
+
+body:json {
+  {
+    "author": "Frank Herbert",
+    "condition": "good"
+  }
+}
+
+assert {
+  res.status: eq 422
+}

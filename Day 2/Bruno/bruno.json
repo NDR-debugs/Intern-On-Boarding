@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "BookSwap Mock Tests",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

@@ -1,0 +1,24 @@
+meta {
+  name: 01 List books (expect 200)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/books?page=1&pageSize=20
+  body: none
+  auth: bearer
+}
+
+params:query {
+  page: 1
+  pageSize: 20
+}
+
+auth:bearer {
+  token: faketoken
+}
+
+assert {
+  res.status: eq 200
+}
