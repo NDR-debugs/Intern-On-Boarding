@@ -1,0 +1,179 @@
+# BookSwap — Alert rules (Azure Monitor)
+# Declarative spec. Translate to Bicep or Terraform to deploy.
+# Severity: Sev1 = page immediately, Sev2 = page, Sev3 = Teams only.
+# Every alert links to the runbook section that tells on-call what to do.
+
+action_groups:
+  - name: ag-oncall-page
+    receivers: [pagerduty-bookswap, teams-bookswap]
+  - name: ag-teams-only
+    receivers: [teams-bookswap]
+  - name: ag-security-page
+    receivers: [pagerduty-security, teams-security]
+
+alerts:
+
+  - name: search-slo-burn
+    protects_slo: S1
+    description: Search is slow or failing fast enough to burn the 99% < 800 ms budget.
+    type: scheduled_query
+    query: |
+      requests
+      | where name == "GET /books"
+      | summarize bad = 100.0 * countif(success == false or duration >= 800) / count()
+    threshold: bad > 1          # percent
+    window: 5m
+    frequency: 1m
+    severity: Sev2
+    action_group: ag-oncall-page
+    runbook: reliability/runbook.md#failure-2-azure-cache-for-redis-is-down
+    auto_mitigate: true
+
+  - name: search-availability
+    protects_slo: S2
+    description: Search is returning server errors above the availability budget.
+    type: scheduled_query
+    query: |
+      requests
+      | where name == "GET /books"
+      | summarize err = 100.0 * countif(toint(resultCode) >= 500) / count()
+    threshold: err > 0.5
+    window: 10m
+    frequency: 1m
+    severity: Sev2
+    action_group: ag-oncall-page
+    runbook: reliability/runbook.md#failure-1-azure-sql-primary-unavailable-for-5-minutes
+
+  - name: listing-create-failure
+    protects_slo: S3
+    description: POST /books success has dropped below the 99.9% target.
+    type: scheduled_query
+    query: |
+      requests
+      | where name == "POST /books"
+      | where toint(resultCode) < 400 or toint(resultCode) >= 500   // ignore 4xx
+      | summarize succ = 100.0 * countif(toint(resultCode) < 400) / count()
+    threshold: succ < 99.9
+    window: 30m
+    frequency: 5m
+    severity: Sev2
+    action_group: ag-oncall-page
+    runbook: reliability/runbook.md#failure-1-azure-sql-primary-unavailable-for-5-minutes
+
+  - name: sql-dependency-down
+    protects_slo: [S1, S2, S3]
+    description: Azure SQL dependency calls are failing (primary likely unavailable).
+    type: scheduled_query
+    query: |
+      dependencies
+      | where type == "SQL"
+      | summarize fail = 100.0 * countif(success == false) / count()
+    threshold: fail > 25
+    window: 2m
+    frequency: 1m
+    severity: Sev1
+    action_group: ag-oncall-page
+    runbook: reliability/runbook.md#failure-1-azure-sql-primary-unavailable-for-5-minutes
+
+  - name: redis-dependency-down
+    protects_slo: [S1, S2]
+    description: Azure Cache for Redis calls are failing; search is falling back to SQL.
+    type: scheduled_query
+    query: |
+      dependencies
+      | where type == "Redis"
+      | summarize fail = 100.0 * countif(success == false) / count()
+    threshold: fail > 10
+    window: 2m
+    frequency: 1m
+    severity: Sev2
+    action_group: ag-oncall-page
+    runbook: reliability/runbook.md#failure-2-azure-cache-for-redis-is-down
+
+  - name: listings-endpoint-outage
+    protects_slo: S5      # detection within 3 minutes (NFR N8)
+    description: No successful listings requests are getting through. Page fast.
+    type: scheduled_query
+    query: |
+      requests
+      | where name in ("GET /books", "POST /books")
+      | summarize good = countif(success == true)
+    threshold: good == 0
+    window: 3m
+    frequency: 1m
+    severity: Sev1
+    action_group: ag-oncall-page
+    runbook: reliability/runbook.md#failure-1-azure-sql-primary-unavailable-for-5-minutes
+
+  - name: traffic-spike-early-warning
+    protects_slo: S4      # spike write availability (NFR N11)
+    description: Request rate or CPU is spiking; confirm autoscale and pre-scale.
+    type: metric
+    signals:
+      - request_rate > 5x_baseline for 5m
+      - app_service_cpu_percent > 70 for 5m
+    severity: Sev3        # escalates to Sev2 if 5xx rate rises
+    action_group: ag-teams-only
+    runbook: reliability/runbook.md#failure-3-sunday-tabloid-spike-10x-traffic-for-4-hours
+
+  - name: audit-completeness
+    protects_slo: S6
+    description: Audit events are missing versus operations that occurred.
+    type: scheduled_query
+    query: |
+      // compares logged audit events against the operations that should have produced them
+      let ops = requests | where name in ("POST /loans", "POST /loans/{id}/return") | count;
+      let logged = traces | where customDimensions.event in ("loan.created","loan.returned") | count;
+      print gap = 100.0 * (toreal(ops) - toreal(logged)) / toreal(ops)
+    threshold: gap > 0.1
+    window: 1h
+    frequency: 15m
+    severity: Sev3
+    action_group: ag-teams-only
+    runbook: navindu-day3-security-review.md   # F2 / audit
+
+  - name: auth-enforcement-leak
+    protects_slo: I1      # hard invariant
+    description: A protected endpoint returned 2xx with no authenticated member. Security event.
+    type: scheduled_query
+    query: |
+      requests
+      | where url !endswith "/health"
+      | where toint(resultCode) < 300
+      | where isempty(customDimensions.memberId)
+    threshold: count > 0
+    window: 5m
+    frequency: 1m
+    severity: Sev1
+    action_group: ag-security-page
+    runbook: navindu-day3-security-review.md   # I1
+
+  - name: cross-member-access
+    protects_slo: I3      # BOLA hard invariant
+    description: Heuristic detection of a member reading another member's object.
+    type: scheduled_query
+    query: |
+      // flags requests where the path member id does not match the token subject
+      traces
+      | where customDimensions.event == "member.data.access"
+      | where tostring(customDimensions.pathMemberId) != tostring(customDimensions.tokenSub)
+    threshold: count > 0
+    window: 5m
+    frequency: 1m
+    severity: Sev1
+    action_group: ag-security-page
+    runbook: navindu-day3-security-review.md   # F1 (BOLA)
+
+  - name: queue-backlog
+    protects_slo: null    # supporting signal, not a user SLO
+    description: The email-digest queue is backing up; workers may be behind.
+    type: metric
+    signals:
+      - service_bus_active_messages > 1000 for 10m
+    severity: Sev3
+    action_group: ag-teams-only
+    runbook: reliability/runbook.md#failure-3-sunday-tabloid-spike-10x-traffic-for-4-hours
+
+# NOT alerted on (deliberately — see observability-plan.md Section 5):
+#   individual slow requests, raw CPU/memory, cache-miss rate,
+#   a single 5xx, low/informational security findings, normal queue growth.
